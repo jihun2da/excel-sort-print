@@ -203,8 +203,48 @@ def load_sheet_rows(raw_bytes, sheet_name):
         if not any(v is not None and v != "" for v in values):
             continue
         a_color = extract_fill_hex(row_cells[0], theme_colors) if row_cells else None
-        rows.append({"cells": values, "row_num": r_idx, "a_color": a_color})
+        h_color = extract_fill_hex(row_cells[COL["H"]], theme_colors) if len(row_cells) > COL["H"] else None
+        rows.append({"cells": values, "row_num": r_idx, "a_color": a_color, "h_color": h_color})
     return LoadedSheet(header=header, rows=rows)
+
+
+# ---------- H열 배경색 기준 그룹핑 (대량분류 이미지 전용 모드) ----------
+def group_rows_by_h_color(rows, noise_tolerance=2):
+    """H열 배경색이 이어지는 구간끼리 그룹으로 묶는다. 정렬은 하지 않고 rows 의 순서를 그대로 사용한다.
+
+    구간 중간에 다른 색이 noise_tolerance 개 이하(기본 1~2개)로 잠깐 섞여 있으면 무시하고
+    원래 색 그룹으로 흡수하며, 다른 색이 noise_tolerance 개를 초과해서(기본 3개 이상) 연속되면
+    그 지점부터 새 그룹으로 전환한다.
+
+    반환값: [{"color": "#RRGGBB"|None, "rows": [row, ...]}, ...]
+    """
+    if not rows:
+        return []
+    groups = []
+    current_color = rows[0].get("h_color")
+    current_rows = [rows[0]]
+    i = 1
+    n = len(rows)
+    while i < n:
+        if rows[i].get("h_color") == current_color:
+            current_rows.append(rows[i])
+            i += 1
+            continue
+        j = i
+        while j < n and rows[j].get("h_color") != current_color:
+            j += 1
+        run_len = j - i
+        if run_len <= noise_tolerance:
+            # 짧게 섞인 다른 색은 무시하고 기존 그룹에 그대로 포함시킨다.
+            current_rows.extend(rows[i:j])
+            i = j
+        else:
+            groups.append({"color": current_color, "rows": current_rows})
+            current_color = rows[i].get("h_color")
+            current_rows = [rows[i]]
+            i += 1
+    groups.append({"color": current_color, "rows": current_rows})
+    return groups
 
 
 # ---------- 서식 보존 다중 시트 저장 ----------

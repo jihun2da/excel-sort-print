@@ -2,17 +2,20 @@
 """
 엑셀 정렬 & A4 인쇄용 이미지 생성 웹앱 (Streamlit 버전)
 
-- 대량 분류 (이미지 전용): A열 -> I열 -> J열 -> K열 순서로 순차 정렬 후, 엑셀 다운로드 단계 없이
-  바로 A4 인쇄용 이미지 생성 단계로 이동한다.
+- 대량 분류 (이미지 전용): 엑셀 정렬은 하지 않고 업로드된 원본 순서 그대로, H열 배경색이 이어지는
+  구간별로 그룹을 나눈다(중간에 다른 색이 1~2행만 섞이면 무시, 3행 이상이면 새 그룹). 그룹마다
+  별도의 이미지 세트(1번부터 번호)를 생성하며, 엑셀 다운로드 단계 없이 바로 이미지 생성으로 이동한다.
 - 소량 분류: F열 -> G열 -> A열 -> K열 순서로 순차 정렬 후, H열 값이 같은 행이
   기준 개수(기본 50, 40/30 선택 가능) 이상이면 그 그룹만 별도 시트로 분리한다.
   정렬된 엑셀 다운로드 + A4 인쇄용 이미지 생성을 모두 제공한다.
 - 정렬된 엑셀 다운로드는 원본 파일의 행(XML row) 자체를 재배치하는 방식이라
   셀 서식·배경색·필터·열 너비 등이 손실되지 않는다.
-- A4 인쇄용 이미지 생성 전, "표지(0번)" 이름/색상을 입력하면 첫 페이지 첫 칸이 표지로 바뀌고
-  실제 데이터는 그대로 1번부터 이어진다(원래 1번 자리였던 데이터 1건은 맨 뒤로 밀림).
+- A4 인쇄용 이미지 생성 전, "표지(0번)" 이름/색상을 입력하면 해당 그룹(시트)의 첫 페이지 첫 칸이
+  표지로 바뀌고 실제 데이터는 그대로 1번부터 이어진다(원래 1번 자리였던 데이터 1건은 맨 뒤로 밀림).
+  대량 분류는 감지된 색상 그룹 개수만큼 표지 입력칸이 각각 표시된다.
 - 생성된 이미지는 순서대로 하나의 PDF로 합쳐지며, 앱 안에서 "인쇄" 버튼으로 바로 인쇄할 수 있다.
 - 메모리 사용량을 줄이기 위해 이미지는 150dpi로 생성하고, PIL Image 대신 PNG bytes 로만 보관한다.
+- 번호(No.) 칸의 숫자 크기는 E열 값 폰트의 50% 크기로 표시된다.
 """
 import base64
 import gc
@@ -22,7 +25,7 @@ import zipfile
 import streamlit as st
 import streamlit.components.v1 as components
 
-from xlsx_utils import load_sheet_rows, sort_sequential, build_multi_sheet_xlsx, COL
+from xlsx_utils import load_sheet_rows, sort_sequential, build_multi_sheet_xlsx, group_rows_by_h_color, COL
 from image_utils import build_pages_for_rows, build_combined_pdf, FONT_BOLD_PATH, FONT_REGULAR_PATH
 
 st.set_page_config(page_title="엑셀 정렬 & A4 인쇄용 이미지 생성", layout="wide")
@@ -118,16 +121,20 @@ if st.session_state.raw_bytes is not None:
     with col_bulk:
         st.subheader("대량 분류 (이미지 전용)")
         st.caption(
-            "A열 정렬 → I열 정렬 → J열 정렬 → K열 정렬 순서로 차례대로(순차) 적용 후, "
-            "엑셀 다운로드 단계 없이 바로 A4 인쇄용 이미지 생성으로 이동합니다."
+            "엑셀 정렬은 하지 않고 업로드된 원본 순서 그대로, H열 배경색이 이어지는 구간별로 "
+            "그룹을 나눠 그룹마다 별도의 이미지 세트(1번부터 번호)를 생성합니다. 중간에 다른 색이 "
+            "1~2행만 섞이면 무시하고 같은 그룹으로 처리하며, 3행 이상 이어지면 새 그룹으로 전환합니다."
         )
         if st.button("대량 분류 실행", type="primary", use_container_width=True):
             try:
-                rows = sort_sequential(st.session_state.loaded.rows, ["A", "I", "J", "K"])
+                groups = group_rows_by_h_color(st.session_state.loaded.rows)
             except Exception as e:
-                st.error(f"정렬 중 오류가 발생했습니다: {e}")
+                st.error(f"H열 색상 그룹을 나누는 중 오류가 발생했습니다: {e}")
             else:
-                st.session_state.sorted_sheets = [{"name": st.session_state.current_sheet, "rows": rows}]
+                st.session_state.sorted_sheets = [
+                    {"name": f"그룹{i + 1}", "rows": g["rows"], "group_color": g["color"]}
+                    for i, g in enumerate(groups)
+                ]
                 st.session_state.method_label = "대량분류"
                 st.session_state.mode = "bulk_image_only"
                 st.session_state.pages_by_sheet = {}
@@ -174,7 +181,10 @@ if st.session_state.raw_bytes is not None:
     # ---------- 3. 결과 ----------
     if st.session_state.sorted_sheets:
         st.header("3. 결과")
-        summary_lines = [f"- **{s['name']}**: {len(s['rows'])}개" for s in st.session_state.sorted_sheets]
+        summary_lines = []
+        for s in st.session_state.sorted_sheets:
+            extra = f" · H열 색상 {s['group_color']}" if s.get("group_color") else (" · H열 색상 없음" if "group_color" in s else "")
+            summary_lines.append(f"- **{s['name']}**: {len(s['rows'])}개{extra}")
         st.markdown(
             f"**{st.session_state.method_label} 완료** · 시트 {len(st.session_state.sorted_sheets)}개 생성\n\n"
             + "\n".join(summary_lines)
@@ -220,21 +230,41 @@ if st.session_state.raw_bytes is not None:
             else:
                 divider_style = {"color": "#000000", "width": 2}
 
-        st.subheader("표지(0번) 설정 (선택 사항)")
-        st.caption(
-            "이름을 입력하면 첫 페이지 첫 칸이 '0번' 표지 칸으로 바뀌고, 원래 그 자리에 있던 데이터 1건은 "
-            "맨 뒤로 밀려서 번호가 다시 매겨집니다. 비워두면 표지 없이 기존처럼 1번부터 생성됩니다."
-        )
-        col_cn, col_cc = st.columns([2, 1])
-        with col_cn:
-            cover_name = st.text_input("표지에 표시할 이름", key="cover_name_input", placeholder="예: 홍길동")
-        with col_cc:
-            cover_color = st.color_picker("표지 배경색", "#FFD54F", key="cover_color_input")
+        cover_by_index = {}
+        if st.session_state.mode == "bulk_image_only":
+            st.subheader("표지(0번) 설정 - 그룹별 (선택 사항)")
+            st.caption(
+                "그룹마다 이름을 입력하면 해당 그룹의 첫 페이지 첫 칸이 '0번' 표지 칸으로 바뀌고, 원래 그 "
+                "자리에 있던 데이터 1건은 맨 뒤로 밀려서 번호가 다시 매겨집니다. 비워두면 그 그룹은 표지 "
+                "없이 기존처럼 1번부터 생성됩니다."
+            )
+            for i, s in enumerate(st.session_state.sorted_sheets):
+                default_color = s.get("group_color") or "#FFD54F"
+                col_cn, col_cc = st.columns([2, 1])
+                with col_cn:
+                    name = st.text_input(
+                        f"{s['name']} 표지 이름 ({len(s['rows'])}개)",
+                        key=f"cover_name_{i}", placeholder="예: 홍길동",
+                    )
+                with col_cc:
+                    color = st.color_picker(f"{s['name']} 표지 배경색", default_color, key=f"cover_color_{i}")
+                cover_by_index[i] = {"name": name, "color": color} if name and name.strip() else None
+        else:
+            st.subheader("표지(0번) 설정 (선택 사항)")
+            st.caption(
+                "이름을 입력하면 첫 페이지 첫 칸이 '0번' 표지 칸으로 바뀌고, 원래 그 자리에 있던 데이터 1건은 "
+                "맨 뒤로 밀려서 번호가 다시 매겨집니다. 비워두면 표지 없이 기존처럼 1번부터 생성됩니다."
+            )
+            col_cn, col_cc = st.columns([2, 1])
+            with col_cn:
+                cover_name = st.text_input("표지에 표시할 이름", key="cover_name_input", placeholder="예: 홍길동")
+            with col_cc:
+                cover_color = st.color_picker("표지 배경색", "#FFD54F", key="cover_color_input")
+            cover_by_index[0] = {"name": cover_name, "color": cover_color} if cover_name and cover_name.strip() else None
 
         if st.button("A4 인쇄용 이미지 생성", type="primary"):
             pages_by_sheet = {}
             progress = st.progress(0.0, text="이미지 생성 준비 중...")
-            cover_info = {"name": cover_name, "color": cover_color} if cover_name and cover_name.strip() else None
 
             def _num_pages(n_items):
                 num_chunks = -(-n_items // 15)  # ceil(n_items / 15)
@@ -242,14 +272,14 @@ if st.session_state.raw_bytes is not None:
 
             try:
                 total = sum(
-                    _num_pages(len(s["rows"]) + (1 if (cover_info and i == 0 and s["rows"]) else 0))
+                    _num_pages(len(s["rows"]) + (1 if (cover_by_index.get(i) and s["rows"]) else 0))
                     for i, s in enumerate(st.session_state.sorted_sheets)
                 ) or 1
                 done = 0
                 for i, s in enumerate(st.session_state.sorted_sheets):
                     if not s["rows"]:
                         continue
-                    this_cover = cover_info if i == 0 else None
+                    this_cover = cover_by_index.get(i)
                     pages = build_pages_for_rows(s["rows"], divider_style, cover=this_cover)
                     pages_by_sheet[s["name"]] = pages
                     done += len(pages)

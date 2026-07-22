@@ -22,7 +22,8 @@ COL_W = (PAGE_W - 2 * MARGIN - GAP) // 2
 ROW_H = (PAGE_H - 2 * MARGIN) / ROWS
 NO_W, A_W = 65, 65
 TOP_H = ROW_H * 0.6
-FONT_MAIN = 42   # 번호 / E열: 20pt @150dpi
+FONT_MAIN = 42   # E열: 20pt @150dpi
+FONT_NO = round(FONT_MAIN * 0.5)  # 번호(No.) 칸 전용: 요청에 따라 기존 크기의 50%
 FONT_A = 23      # A열 값: 11pt @150dpi
 FONT_SUB = 23    # F열/G열 기준 크기: 11pt @150dpi (겹치면 자동 축소)
 FONT_COVER = 50  # 표지 이름 기준 크기
@@ -99,7 +100,7 @@ def draw_cell(draw, x0, y0, x1, y1, no, a_val, e_val, f_val, g_val, a_color, div
     ycen = (y0 + y1) / 2
     if no is not None:
         t = str(no)
-        f = _fit_font(draw, t, NO_W - 8, FONT_MAIN, True)
+        f = _fit_font(draw, t, NO_W - 8, FONT_NO, True)
         _draw_text_centered_v(draw, (x0 + NO_W / 2, ycen), t, f, "black", "center")
 
     if a_val not in (None, ""):
