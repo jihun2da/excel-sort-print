@@ -186,7 +186,7 @@ def sort_sequential(rows, order):
 @dataclass
 class LoadedSheet:
     header: list
-    rows: list  # list of dict: {"cells": [...], "row_num": int, "a_color": str|None}
+    rows: list  # list of dict: {"cells": [...], "row_num": int, "a_color": str|None, "h_color": str|None, "k_color": str|None}
 
 
 def load_sheet_rows(raw_bytes, sheet_name):
@@ -204,8 +204,27 @@ def load_sheet_rows(raw_bytes, sheet_name):
             continue
         a_color = extract_fill_hex(row_cells[0], theme_colors) if row_cells else None
         h_color = extract_fill_hex(row_cells[COL["H"]], theme_colors) if len(row_cells) > COL["H"] else None
-        rows.append({"cells": values, "row_num": r_idx, "a_color": a_color, "h_color": h_color})
+        k_color = extract_fill_hex(row_cells[COL["K"]], theme_colors) if len(row_cells) > COL["K"] else None
+        rows.append({"cells": values, "row_num": r_idx, "a_color": a_color, "h_color": h_color, "k_color": k_color})
     return LoadedSheet(header=header, rows=rows)
+
+
+# ---------- K열 배경색 기준 인쇄 대상 범위 자르기 (대량분류 이미지 전용 모드) ----------
+def truncate_by_k_color_run(rows):
+    """첫 번째 행(rows[0])의 K열 배경색을 기준으로, 그 색이 계속 이어지는 동안의 행만 남기고
+    색이 처음 바뀌는 행부터는(노이즈 허용 없이) 전부 잘라낸다. 정렬은 하지 않고 rows 의 순서를
+    그대로 사용한다.
+
+    반환값: (kept_rows, cutoff_row_num|None) - cutoff_row_num 은 색이 바뀐 첫 행의 원본 엑셀 행번호
+    (색이 끝까지 안 바뀌면 None).
+    """
+    if not rows:
+        return rows, None
+    first_color = rows[0].get("k_color")
+    for i in range(1, len(rows)):
+        if rows[i].get("k_color") != first_color:
+            return rows[:i], rows[i].get("row_num")
+    return rows, None
 
 
 # ---------- H열 배경색 기준 그룹핑 (대량분류 이미지 전용 모드) ----------

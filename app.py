@@ -25,7 +25,10 @@ import zipfile
 import streamlit as st
 import streamlit.components.v1 as components
 
-from xlsx_utils import load_sheet_rows, sort_sequential, build_multi_sheet_xlsx, group_rows_by_h_color, COL
+from xlsx_utils import (
+    load_sheet_rows, sort_sequential, build_multi_sheet_xlsx,
+    group_rows_by_h_color, truncate_by_k_color_run, COL,
+)
 from image_utils import build_pages_for_rows, build_combined_pdf, FONT_BOLD_PATH, FONT_REGULAR_PATH
 
 st.set_page_config(page_title="엑셀 정렬 & A4 인쇄용 이미지 생성", layout="wide")
@@ -121,15 +124,18 @@ if st.session_state.raw_bytes is not None:
     with col_bulk:
         st.subheader("대량 분류 (이미지 전용)")
         st.caption(
-            "엑셀 정렬은 하지 않고 업로드된 원본 순서 그대로, H열 배경색이 이어지는 구간별로 "
-            "그룹을 나눠 그룹마다 별도의 이미지 세트(1번부터 번호)를 생성합니다. 중간에 다른 색이 "
-            "1~2행만 섞이면 무시하고 같은 그룹으로 처리하며, 3행 이상 이어지면 새 그룹으로 전환합니다."
+            "엑셀 정렬은 하지 않고 업로드된 원본 순서 그대로 진행합니다. 먼저 K열 배경색을 기준으로 "
+            "첫 행부터 같은 색이 이어지는 행까지만 인쇄 대상으로 남기고(색이 처음 바뀌는 행부터 나머지는 "
+            "전부 제외), 그 범위 안에서 H열 배경색이 이어지는 구간별로 그룹을 나눠 그룹마다 별도의 "
+            "이미지 세트(1번부터 번호)를 생성합니다. H열 그룹 판단 시 중간에 다른 색이 1~2행만 섞이면 "
+            "무시하고 같은 그룹으로 처리하며, 3행 이상 이어지면 새 그룹으로 전환합니다."
         )
         if st.button("대량 분류 실행", type="primary", use_container_width=True):
             try:
-                groups = group_rows_by_h_color(st.session_state.loaded.rows)
+                kept_rows, cutoff_row_num = truncate_by_k_color_run(st.session_state.loaded.rows)
+                groups = group_rows_by_h_color(kept_rows)
             except Exception as e:
-                st.error(f"H열 색상 그룹을 나누는 중 오류가 발생했습니다: {e}")
+                st.error(f"그룹을 나누는 중 오류가 발생했습니다: {e}")
             else:
                 st.session_state.sorted_sheets = [
                     {"name": f"그룹{i + 1}", "rows": g["rows"], "group_color": g["color"]}
@@ -139,6 +145,13 @@ if st.session_state.raw_bytes is not None:
                 st.session_state.mode = "bulk_image_only"
                 st.session_state.pages_by_sheet = {}
                 st.session_state.combined_pdf_bytes = None
+                total_loaded = len(st.session_state.loaded.rows)
+                excluded = total_loaded - len(kept_rows)
+                if cutoff_row_num is not None:
+                    st.info(
+                        f"K열 색상이 {cutoff_row_num}행부터 바뀌어, {kept_rows[-1]['row_num']}행까지 "
+                        f"{len(kept_rows)}개 행만 인쇄 대상에 포함했습니다 (제외된 행: {excluded}개)."
+                    )
 
     with col_small:
         st.subheader("소량 분류 (엑셀 + 이미지)")
