@@ -12,7 +12,8 @@
   셀 서식·배경색·필터·열 너비 등이 손실되지 않는다.
 - A4 인쇄용 이미지 생성 전, "표지(0번)" 이름/색상을 입력하면 해당 그룹(시트)의 첫 페이지 첫 칸이
   표지로 바뀌고 실제 데이터는 그대로 1번부터 이어진다(원래 1번 자리였던 데이터 1건은 맨 뒤로 밀림).
-  대량 분류는 감지된 색상 그룹 개수만큼 표지 입력칸이 각각 표시된다.
+  대량 분류는 감지된 색상 그룹 개수만큼 표지 입력칸이 각각 표시된다. 소량 분류는 시트마다 표지
+  입력칸이 표시되며 기본값으로 해당 시트 이름이 미리 채워진다.
 - 생성된 이미지는 순서대로 하나의 PDF로 합쳐지며, 앱 안에서 "인쇄" 버튼으로 바로 인쇄할 수 있다.
 - 메모리 사용량을 줄이기 위해 이미지는 150dpi로 생성하고, PIL Image 대신 PNG bytes 로만 보관한다.
 - 번호(No.) 칸의 숫자 크기는 E열 값 폰트의 50% 크기로 표시된다.
@@ -263,17 +264,23 @@ if st.session_state.raw_bytes is not None:
                     color = st.color_picker(f"{s['name']} 표지 배경색", default_color, key=f"cover_color_{i}")
                 cover_by_index[i] = {"name": name, "color": color} if name and name.strip() else None
         else:
-            st.subheader("표지(0번) 설정 (선택 사항)")
+            st.subheader("표지(0번) 설정 - 시트별 (선택 사항)")
             st.caption(
-                "이름을 입력하면 첫 페이지 첫 칸이 '0번' 표지 칸으로 바뀌고, 원래 그 자리에 있던 데이터 1건은 "
-                "맨 뒤로 밀려서 번호가 다시 매겨집니다. 비워두면 표지 없이 기존처럼 1번부터 생성됩니다."
+                "시트마다 이름 입력칸에 해당 시트 이름이 기본값으로 미리 채워져 있어, 별도 입력 없이도 각 시트 "
+                "첫 페이지 첫 칸이 '0번' 표지 칸으로 자동 생성됩니다(원래 그 자리에 있던 데이터 1건은 맨 뒤로 "
+                "밀려서 번호가 다시 매겨집니다). 필요하면 이름을 다른 값으로 바꿀 수 있고, 지워서 비워두면 그 "
+                "시트는 표지 없이 기존처럼 1번부터 생성됩니다."
             )
-            col_cn, col_cc = st.columns([2, 1])
-            with col_cn:
-                cover_name = st.text_input("표지에 표시할 이름", key="cover_name_input", placeholder="예: 홍길동")
-            with col_cc:
-                cover_color = st.color_picker("표지 배경색", "#FFD54F", key="cover_color_input")
-            cover_by_index[0] = {"name": cover_name, "color": cover_color} if cover_name and cover_name.strip() else None
+            for i, s in enumerate(st.session_state.sorted_sheets):
+                col_cn, col_cc = st.columns([2, 1])
+                with col_cn:
+                    name = st.text_input(
+                        f"{s['name']} 표지 이름 ({len(s['rows'])}개)",
+                        value=s["name"], key=f"cover_name_small_{i}", placeholder="예: 홍길동",
+                    )
+                with col_cc:
+                    color = st.color_picker(f"{s['name']} 표지 배경색", "#FFD54F", key=f"cover_color_small_{i}")
+                cover_by_index[i] = {"name": name, "color": color} if name and name.strip() else None
 
         if st.button("A4 인쇄용 이미지 생성", type="primary"):
             pages_by_sheet = {}
