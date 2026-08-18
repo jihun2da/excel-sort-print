@@ -5,8 +5,8 @@
 - 해상도는 150dpi(2480x3508의 절반)로 낮춰 이미지 1장당 메모리 사용량을 약 1/4로 줄였다.
   (Streamlit Community Cloud 무료 서버의 메모리 한도 초과로 인한 "Oh no" 크래시를 줄이기 위함)
 - 페이지는 생성 직후 PNG bytes 로 변환해 PIL Image 객체를 즉시 버린다(메모리 절약).
-- "표지(0번)" 셀: 이름 + 배경색을 지정하면 첫 페이지 첫 칸이 표지로 바뀌고,
-  원래 그 자리에 있던 데이터 1건은 맨 뒤로 밀려서 다시 번호가 매겨진다.
+- "표지(0번)" 셀: 이름 + 배경색을 지정하면 첫 페이지 맨 앞에 표지 칸이 추가된다.
+  기존 데이터는 순서·번호가 전혀 바뀌지 않고(밀려나지 않고) 그대로 1번부터 이어진다.
 - build_combined_pdf: 생성된 모든 페이지를 순서대로 하나의 PDF로 합친다(인쇄용).
 """
 import glob
@@ -192,18 +192,17 @@ def _label_range(chunk):
 def build_pages_for_rows(rows, divider_style, cover=None):
     """행 리스트 하나(=시트/그룹 하나)를 A4 페이지 이미지(PNG bytes) 리스트로 변환.
 
-    cover: {"name": str, "color": "#RRGGBB"} 를 넘기면 첫 페이지 왼쪽 맨 위 칸이
-    "0번" 표지 칸으로 바뀌고, 그 자리에 있었을 데이터 1건은 맨 뒤로 밀린다.
-    나머지 데이터는 기존과 동일하게 1번부터 번호가 매겨진다.
+    cover: {"name": str, "color": "#RRGGBB"} 를 넘기면 첫 페이지 왼쪽 맨 위 칸 앞에
+        "0번" 표지 칸이 추가된다. 기존 데이터는 순서나 번호가 전혀 바뀌지 않고(밀려나거나
+        이동하지 않고) 그대로 1번부터 번호가 매겨진다. 표지가 추가되는 만큼 전체 칸 수가
+        1개 늘어나므로 페이지 수가 늘어날 수 있다.
     """
     if not rows:
         return []
 
     if cover and (cover.get("name") or "").strip():
-        moved = rows[0]
-        data_rows = list(rows[1:]) + [moved]
         items = [{"type": "cover", "name": cover.get("name", "").strip(), "color": cover.get("color") or "#FFD54F"}]
-        items += [{"type": "data", "row": r, "no": i + 1} for i, r in enumerate(data_rows)]
+        items += [{"type": "data", "row": r, "no": i + 1} for i, r in enumerate(rows)]
     else:
         items = [{"type": "data", "row": r, "no": i + 1} for i, r in enumerate(rows)]
 
